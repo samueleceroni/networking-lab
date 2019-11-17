@@ -9,16 +9,22 @@
 #include<errno.h>
 
 //Constants and global variable declaration goes here
-
+ // 'tcp' or 'udp'
+#define PROTOCOL_TYPE_SIZE 4
+ // 'wait' or 'nowait'
+#define SERVICE_MODE_SIZE 7
+ // max is '65535'
+#define PORT_NUMBER_SIZE 6
+#define MAX_NAME_SIZE 255
 
 //TODO remove comment
 //Service structure definition goes here
 typedef struct {
-	char protocol[4]; // 'tcp', 'udp'
-	char mode[7]; // 'wait', 'nowait'
-	char port[6]; // max is '65535'
-	char path[255]; // service path
-	char name[255]; // service name
+	char protocol[PROTOCOL_TYPE_SIZE]; // 'tcp', 'udp'
+	char mode[SERVICE_MODE_SIZE]; // 'wait', 'nowait'
+	char port[PORT_NUMBER_SIZE];
+	char path[MAX_NAME_SIZE]; // service path
+	char name[MAX_NAME_SIZE]; // service name
 	int  socketFD;
 	int  pid; // child process ID: only meaningful if type is 'wait'
 } ServiceData;
