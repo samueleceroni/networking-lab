@@ -21,6 +21,13 @@
 #define EXIT_READ_ERROR 10
 #define EXIT_CONF_ERROR 11
 
+// Constants
+#define PROTOCOL_UDP "udp"
+#define PROTOCOL_TCP "tcp"
+#define MODE_WAIT "wait"
+#define MODE_NOWAIT "nowait"
+#define PORT_MAX 65535
+
 typedef struct {
 	char protocol[PROTOCOL_TYPE_SIZE]; // 'tcp', 'udp'
 	char mode[SERVICE_MODE_SIZE]; // 'wait', 'nowait'
@@ -104,9 +111,9 @@ ServiceDataVector read_configuration(FILE *stream) {
 		int count = sscanf(line, formatString,
 			current->path, current->protocol, current->port, current->mode);
 		if (count != 4 ||
-			(strcmp("udp", current->protocol) != 0 && strcmp("tcp", current->protocol) != 0) || // TODO defines for these strings
-			(strcmp("wait", current->mode) != 0 && strcmp("nowait", current->mode) != 0) ||
-			(atoi(current->port) <= 0 || atoi(current->port) >= 65536)) {
+			(strcmp(PROTOCOL_UDP, current->protocol) != 0 && strcmp(PROTOCOL_TCP, current->protocol) != 0) ||
+			(strcmp(MODE_WAIT, current->mode) != 0 && strcmp(MODE_NOWAIT, current->mode) != 0) ||
+			(atoi(current->port) <= 0 || atoi(current->port) > PORT_MAX)) {
 			die(EXIT_CONF_ERROR);
 		}
 		const char *lastSlash = strrchr(current->path, '/');
