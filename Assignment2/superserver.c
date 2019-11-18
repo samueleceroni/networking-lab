@@ -7,6 +7,8 @@
 #include<netinet/in.h>
 #include<signal.h>
 #include<errno.h>
+#include<stdbool.h>
+#include<ctype.h>
 
 // Buffer sizes
 #define PROTOCOL_TYPE_SIZE 4
@@ -47,17 +49,27 @@ void die(int error) {
 	exit(error);
 }
 
+// Checks if the given null-terminated string contains only whitespaces
+bool is_empty(char *s) {
+	for(; *s != '\0'; s++) {
+		if (!isspace(*s)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 // Counts non-empty lines in a stream
-size_t count_lines(FILE *stream) { // TODO skip lines with only whitespaces
+size_t count_lines(FILE *stream) {
 	size_t lines = 0;
-	int prevNewline = 1;
+	bool prevNewline = true;
 	char c;
 	while((c = fgetc(stream)) != EOF) {
-		if (c != '\n' && prevNewline) {
+		if (c != '\n' && !isspace(c) && prevNewline) {
 			lines++;
-			prevNewline = 0;
+			prevNewline = false;
 		} else if (c == '\n') {
-			prevNewline = 1;
+			prevNewline = true;
 		}
 	}
 	return lines;
@@ -85,7 +97,7 @@ ServiceDataVector read_configuration(FILE *stream) {
 			if (result == NULL && !feof(stream)) {
 				die(EXIT_READ_ERROR);
 			}
-		} while(line[0] == '\n'); // TODO skip lines with only whitespaces
+		} while(is_empty(line));
 
 		ServiceData *current = &config.services[index];
 
