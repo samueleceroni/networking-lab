@@ -335,11 +335,11 @@ void handle_signal (int sig);
 ServiceDataVector config;
 fd_set socketsSet;
 
-void initialize_socket_set(){
-	FD_ZERO(&socketsSet);
+void initialize_socket_set(ServiceDataVector config, fd_set *socketsSet){
+	FD_ZERO(socketsSet);
 	for (size_t i = 0; i < config.size; i++) {
 		printf("socket set %d\n", i);
-		FD_SET(config.services[i].socketFD, &socketsSet);
+		FD_SET(config.services[i].socketFD, socketsSet);
 	}
 }
 
@@ -367,9 +367,9 @@ int  main(int argc,char **argv,char **env){ // NOTE: env is the variable to be p
 	int highestFd = initialize_all_configs(&config);
 	printf("highestFd%d\n", highestFd);
 	
-	initialize_socket_set();
+	initialize_socket_set(config, &socketsSet);
 
-	// HandleEXIT_SUPERSERVER_CONFIG_FILE_ERROR signals sent by son processes
+	// Handle signals sent by son processes
 	signal (SIGCHLD, handle_signal);
 
 	while (true) {
