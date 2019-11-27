@@ -276,7 +276,7 @@ void free_services(ServiceDataVector *config) {
 }
 
 // Never returns
-void handle_service(int inputSocketFD, ServiceData *config, char * const envp[]) {
+void spawn_service(int inputSocketFD, ServiceData *config, char * const envp[]) {
 	try_close(0);
 	try_dup(inputSocketFD);
 
@@ -299,7 +299,7 @@ ServiceDataVector read_server_configuration(){
 	return config;
 }
 
-void handle_positive_bit_select(ServiceData* config, char **env, fd_set* socketsSet){
+void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
 	bool isTcp = isServiceTcp(config);
 	int receiveSocketFD;
 	if (isTcp) {
@@ -314,7 +314,7 @@ void handle_positive_bit_select(ServiceData* config, char **env, fd_set* sockets
 		if (isTcp) {
 			try_close(config->socketFD);
 		}
-		handle_service(receiveSocketFD, config, env); // Never returns
+		spawn_service(receiveSocketFD, config, env); // Never returns
 	}
 
 	// In the father
@@ -343,15 +343,17 @@ void initialize_socket_set(ServiceDataVector config, fd_set *socketsSet){
 	}
 }
 
-void main_loop_one_cycle(int highestFd, char **env){
+void main_loop(int highestFd, char **env){
+	while(true) {
 		fd_set readSet = socketsSet;
 		try_select(highestFd, &readSet);
 
 		for (size_t i = 0; i < config.size; i++) {
 			if (FD_ISSET(config.services[i].socketFD, &readSet)) {
-				handle_positive_bit_select(&config.services[i], env, &socketsSet);
+				handle_service(&config.services[i], env, &socketsSet);
 			}
 		}
+	}
 }
 
 int  main(int argc,char **argv,char **env){ // NOTE: env is the variable to be passed, as last argument, to execle system-call
@@ -372,9 +374,7 @@ int  main(int argc,char **argv,char **env){ // NOTE: env is the variable to be p
 	// Handle signals sent by son processes
 	signal (SIGCHLD, handle_signal);
 
-	while (true) {
-		main_loop_one_cycle(highestFd, env);
-	}
+	main_loop(highestFd, env);
 
 	free_services(&config);
 	return 0;
