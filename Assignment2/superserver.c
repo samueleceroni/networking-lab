@@ -32,7 +32,7 @@
 #define EXIT_DUP_ERROR 19
 #define EXIT_EXECLE_ERROR 20
 #define EXIT_WAIT_ERROR 21
-
+#define EXIT_SUPERSERVER_CONFIG_FILE_ERROR 22
 // Constants
 #define PROTOCOL_UDP "udp"
 #define PROTOCOL_TCP "tcp"
@@ -40,6 +40,7 @@
 #define MODE_NOWAIT "nowait"
 #define PORT_MAX 65535
 #define MAX_TCP_PENDING_CONNECTIONS 8
+#define SUPERSERVER_CONF_FILE_NAME "superserver.conf"
 
 typedef struct {
 	char protocol[PROTOCOL_TYPE_SIZE]; // 'tcp', 'udp'
@@ -94,6 +95,9 @@ void die(int error) {
 			break;
 		case EXIT_WAIT_ERROR:
 			perror("The wait operation returned an error");
+			break;
+		case EXIT_SUPERSERVER_CONFIG_FILE_ERROR:
+			fprintf(stderr, "The superserver failed to load the configuration file.");
 			break;
 	}
 	exit(error);
@@ -222,6 +226,12 @@ pid_t try_wait(int* status) {
 	return pid;
 }
 
+void try_select(int highestFd, fd_set* readSet){
+	if (select(highestFd, readSet, NULL, NULL, NULL) < 0 && errno != EINTR) {
+		die(EXIT_SELECT_ERROR);
+	}
+}
+
 struct sockaddr_in get_initialized_server_addr(ServiceData* config){
 	struct sockaddr_in serverAddr;
 	serverAddr.sin_family = AF_INET;
@@ -241,7 +251,7 @@ void initialize_service(ServiceData *config) {
 }
 
 // Initialize all services, returns the highest file descriptor + 1 (useful for select).
-int initialize_all(ServiceDataVector *config) {
+int initialize_all_configs(ServiceDataVector *config) {
 	int maxFd = -1;
 	for (size_t i = 0; i < config->size; i++) {
 		initialize_service(&config->services[i]);
@@ -266,7 +276,7 @@ void free_services(ServiceDataVector *config) {
 }
 
 // Never returns
-void handle_service(int inputSocketFD, ServiceData *config, char * const envp[]) {
+void spawn_service(int inputSocketFD, ServiceData *config, char * const envp[]) {
 	try_close(0);
 	try_dup(inputSocketFD);
 
@@ -280,73 +290,91 @@ void handle_service(int inputSocketFD, ServiceData *config, char * const envp[])
 		die(EXIT_EXECLE_ERROR);
 }
 
+ServiceDataVector read_server_configuration(){
+	FILE *fp = fopen(SUPERSERVER_CONF_FILE_NAME, "r");
+	if(fp == NULL)
+		die(EXIT_SUPERSERVER_CONFIG_FILE_ERROR);
+	ServiceDataVector config = read_configuration(fp);
+	fclose(fp);
+	return config;
+}
+
+void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
+	bool isTcp = isServiceTcp(config);
+	int receiveSocketFD;
+	if (isTcp) {
+		receiveSocketFD = try_accept(config);
+	} else {
+		receiveSocketFD = config->socketFD;
+	}
+
+	pid_t pid = try_fork();
+
+	if (pid == 0) {
+		if (isTcp) {
+			try_close(config->socketFD);
+		}
+		spawn_service(receiveSocketFD, config, env); // Never returns
+	}
+
+	// In the father
+	if (isTcp) {
+		try_close(receiveSocketFD);
+	}
+
+	if (isServiceWait(config)) {
+		FD_CLR(config->socketFD, socketsSet);
+		config->pid = pid;
+	}
+}
+
+
 //Function prototype devoted to handle the death of the son process
 void handle_signal (int sig);
 
 ServiceDataVector config;
 fd_set socketsSet;
 
+void initialize_socket_set(ServiceDataVector config, fd_set *socketsSet){
+	FD_ZERO(socketsSet);
+	for (size_t i = 0; i < config.size; i++) {
+		printf("socket set %d\n", i);
+		FD_SET(config.services[i].socketFD, socketsSet);
+	}
+}
+
+void main_loop(int highestFd, char **env){
+	while(true) {
+		fd_set readSet = socketsSet;
+		try_select(highestFd, &readSet);
+
+		for (size_t i = 0; i < config.size; i++) {
+			if (FD_ISSET(config.services[i].socketFD, &readSet)) {
+				handle_service(&config.services[i], env, &socketsSet);
+			}
+		}
+	}
+}
+
 int  main(int argc,char **argv,char **env){ // NOTE: env is the variable to be passed, as last argument, to execle system-call
 	// Other variables declaration goes here
 	
 	// Configuration loading
-	FILE *fp = fopen("superserver.conf", "r"); // TODO more checks
-	config = read_configuration(fp);
-	fclose(fp);
+	config = read_server_configuration();
 	
 	print_config(config); // TODO remove, debug only
 
 	printf("initialize_all\n");
 	// Server behavior implementation goes here
-	int highestFd = initialize_all(&config);
+	int highestFd = initialize_all_configs(&config);
 	printf("highestFd%d\n", highestFd);
 	
-	FD_ZERO(&socketsSet);
-	for (size_t i = 0; i < config.size; i++) {
-		printf("socket set %d\n", i);
-		FD_SET(config.services[i].socketFD, &socketsSet);
-	}
+	initialize_socket_set(config, &socketsSet);
 
 	// Handle signals sent by son processes
 	signal (SIGCHLD, handle_signal);
 
-	while (true) {
-		fd_set readSet = socketsSet;
-		if (select(highestFd, &readSet, NULL, NULL, NULL) < 0 && errno != EINTR) {
-			die(EXIT_SELECT_ERROR);
-		}
-
-		for (size_t i = 0; i < config.size; i++) {
-			if (FD_ISSET(config.services[i].socketFD, &readSet)) {
-				bool isTcp = isServiceTcp(&config.services[i]);
-				int receiveSocketFD;
-				if (isTcp) {
-					receiveSocketFD = try_accept(&config.services[i]);
-				} else {
-					receiveSocketFD = config.services[i].socketFD;
-				}
-
-				pid_t pid = try_fork();
-
-				if (pid == 0) {
-					if (isTcp) {
-						try_close(config.services[i].socketFD);
-					}
-					handle_service(receiveSocketFD, &config.services[i], env); // Never returns
-				}
-
-				// In the father
-				if (isTcp) {
-					try_close(receiveSocketFD);
-				}
-
-				if (isServiceWait(&config.services[i])) {
-					FD_CLR(config.services[i].socketFD, &socketsSet);
-					config.services[i].pid = pid;
-				}
-			}
-		}
-	}
+	main_loop(highestFd, env);
 
 	free_services(&config);
 	return 0;
