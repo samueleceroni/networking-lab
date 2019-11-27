@@ -40,7 +40,7 @@
 #define MODE_NOWAIT "nowait"
 #define PORT_MAX 65535
 #define MAX_TCP_PENDING_CONNECTIONS 8
-#define SUPERSERVER_CONF_FILE_NAME "supereserver.conf"
+#define SUPERSERVER_CONF_FILE_NAME "superserver.conf"
 
 typedef struct {
 	char protocol[PROTOCOL_TYPE_SIZE]; // 'tcp', 'udp'
