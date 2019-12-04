@@ -241,10 +241,17 @@ pid_t try_wait(int* status) {
 	return pid;
 }
 
-void try_select(int highestFd, fd_set* readSet){
-	if (select(highestFd, readSet, NULL, NULL, NULL) < 0 && errno != EINTR) {
-		die(EXIT_SELECT_ERROR);
+// Returns true if there is some FD ready
+bool try_select(int highestFd, fd_set* readSet){
+	int result = select(highestFd, readSet, NULL, NULL, NULL);
+	if (result < 0) {
+		if (errno == EINTR) {
+			return false;
+		} else {
+			die(EXIT_SELECT_ERROR);
+		}
 	}
+	return true;
 }
 
 struct sockaddr_in get_initialized_server_addr(ServiceData* config){
@@ -366,11 +373,13 @@ void initialize_socket_set(ServiceDataVector config, fd_set *socketsSet){
 void main_loop(int highestFd, char **env){
 	while(true) {
 		fd_set readSet = socketsSet;
-		try_select(highestFd, &readSet);
+		bool somethingReady = try_select(highestFd, &readSet);
 
-		for (size_t i = 0; i < config.size; i++) {
-			if (FD_ISSET(config.services[i].socketFD, &readSet)) {
-				handle_service(&config.services[i], env, &socketsSet);
+		if (somethingReady) {
+			for (size_t i = 0; i < config.size; i++) {
+				if (FD_ISSET(config.services[i].socketFD, &readSet)) {
+					handle_service(&config.services[i], env, &socketsSet);
+				}
 			}
 		}
 	}
