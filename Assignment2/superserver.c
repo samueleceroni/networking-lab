@@ -29,10 +29,11 @@
 #define EXIT_FORK_ERROR 16
 #define EXIT_SELECT_ERROR 17
 #define EXIT_CLOSE_ERROR 18
-#define EXIT_DUP_ERROR 19
-#define EXIT_EXECLE_ERROR 20
-#define EXIT_WAIT_ERROR 21
-#define EXIT_SUPERSERVER_CONFIG_FILE_ERROR 22
+#define EXIT_WAIT_ERROR 19
+#define EXIT_SUPERSERVER_CONFIG_FILE_ERROR 20
+#define CHILD_EXIT_EXECLE_ERROR 21
+#define CHILD_EXIT_CLOSE_ERROR 22
+#define CHILD_EXIT_DUP_ERROR 23
 // Constants
 #define PROTOCOL_UDP "udp"
 #define PROTOCOL_TCP "tcp"
@@ -57,8 +58,8 @@ typedef struct {
 	ServiceData *services;
 } ServiceDataVector;
 
-// Terminates the program with a custom error code
-void die(int error) {
+// Prints a custom error
+void print_error(int error) {
 	switch(error) {
 		case EXIT_READ_ERROR:
 			perror("An error occurred reading configuration file");
@@ -87,19 +88,27 @@ void die(int error) {
 		case EXIT_CLOSE_ERROR:
 			perror("The close operation returned an error");
 			break;
-		case EXIT_DUP_ERROR:
-			perror("The dup operation returned an error");
-			break;
-		case EXIT_EXECLE_ERROR:
-			perror("The execle operation returned an error");
-			break;
 		case EXIT_WAIT_ERROR:
 			perror("The wait operation returned an error");
 			break;
 		case EXIT_SUPERSERVER_CONFIG_FILE_ERROR:
-			fprintf(stderr, "The superserver failed to load the configuration file.");
+			fprintf(stderr, "The superserver failed to load the configuration file.\n");
+			break;
+		case CHILD_EXIT_EXECLE_ERROR:
+			fprintf(stderr, "The execle operation returned an error\n");
+			break;
+		case CHILD_EXIT_CLOSE_ERROR:
+			fprintf(stderr, "The close operation returned an error\n");
+			break;
+		case CHILD_EXIT_DUP_ERROR:
+			fprintf(stderr, "The dup operation returned an error");
 			break;
 	}
+}
+
+// Terminates the program with a custom error code
+void die(int error) {
+	print_error(error);
 	exit(error);
 }
 
@@ -207,6 +216,12 @@ void try_close(int socketFD) {
 	}
 }
 
+void child_try_close(int socketFD) {
+	if (close(socketFD) < 0) {
+		exit(CHILD_EXIT_CLOSE_ERROR);
+	}
+}
+
 pid_t try_fork() {
 	pid_t result = fork();
 	if (result < 0)
@@ -214,9 +229,9 @@ pid_t try_fork() {
 	return result;
 }
 
-void try_dup(int socketFD) {
+void child_try_dup(int socketFD) {
 	if (dup(socketFD) < 0)
-		die(EXIT_DUP_ERROR);
+		exit(CHILD_EXIT_DUP_ERROR);
 }
 
 pid_t try_wait(int* status) {
@@ -277,17 +292,22 @@ void free_services(ServiceDataVector *config) {
 
 // Never returns
 void spawn_service(int inputSocketFD, ServiceData *config, char * const envp[]) {
-	try_close(0);
-	try_dup(inputSocketFD);
+	child_try_close(0);
+	child_try_dup(inputSocketFD);
 
-	try_close(1);
-	try_dup(inputSocketFD);
+	child_try_close(1);
+	child_try_dup(inputSocketFD);
 
-	try_close(2);
-	try_dup(inputSocketFD);
+	child_try_close(2);
+	child_try_dup(inputSocketFD);
 
-	if (execle(config->path, config->name, (char*)NULL, envp) < 0)
-		die(EXIT_EXECLE_ERROR);
+	if (execle(config->path, config->name, (char*)NULL, envp) < 0) {
+		child_try_close(0);
+		child_try_close(1);
+		child_try_close(2);
+		child_try_close(inputSocketFD);
+		exit(CHILD_EXIT_EXECLE_ERROR);
+	}
 }
 
 ServiceDataVector read_server_configuration(){
@@ -387,11 +407,13 @@ void handle_signal (int sig){
 	switch (sig) {
 		case SIGCHLD:
 			childPid = try_wait(&childStatus);
-			if (!WIFEXITED(childStatus)) {
+			if (WEXITSTATUS(childStatus) != 0) {
 				fprintf(stderr, "A child with PID %d exited with code %d\n", childPid, WEXITSTATUS(childStatus));
+				print_error(WEXITSTATUS(childStatus));
 			}
 			for (size_t i = 0; i < config.size; i++) {
 				if (config.services[i].pid == childPid) {
+					printf("found pid: %s\n", config.services[i].name);
 					FD_SET(config.services[i].socketFD, &socketsSet);
 					config.services[i].pid = 0;
 					break;
