@@ -286,7 +286,7 @@ void spawn_service(int inputSocketFD, ServiceData *config, char * const envp[]) 
 	try_close(2);
 	try_dup(inputSocketFD);
 
-	if (execle(config->path, config->name, envp) < 0)
+	if (execle(config->path, config->name, (char*)NULL, envp) < 0)
 		die(EXIT_EXECLE_ERROR);
 }
 
