@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include<unistd.h>
+#include <stdbool.h>
+#include <time.h>
 
 #define MAX_BUF_SIZE 1024
 #define PORT_MAX 65535
@@ -14,10 +18,25 @@
 #define MEAS_RTT_TYPE 1
 #define MAX_INT_VALUE 1e8
 #define MAX_INT_LENGTH 8
+#define MAX_TCP_PENDING_CONNECTIONS 8
+
+#define HELLO_OK_RESP "200 OK - Ready"
+#define HELLO_ERROR_RESP "404 ERROR - Invalid Hello message"
+#define MEASUREMENT_ERROR_RESP "404 ERROR - Invalid Measurement message"
+#define BYE_OK_RESP "200 OK - Closing"
+#define BYE_ERROR_RESP "404 ERROR - Invalid Bye message"
 
 #define EXIT_SOCKET_CREATION_ERROR 12
+#define EXIT_SOCKET_BIND_ERROR 13
+#define EXIT_LISTEN_ERROR 14
+#define EXIT_ACCEPT_ERROR 15
+#define EXIT_CLOSE_ERROR 18
 #define EXIT_INVALID_PORT 23
 #define EXIT_RECV_ERROR 24
+#define EXIT_MALLOC_ERROR 25
+#define EXIT_SEND_ERROR 26
+
+char commonBuffer[MAX_BUF_SIZE];
 
 typedef struct {
 	int measType;
@@ -29,12 +48,6 @@ typedef struct {
 // Terminates the program with a custom error code
 void die(int error) {
 	switch(error) {
-		case EXIT_READ_ERROR:
-			perror("An error occurred reading configuration file");
-			break;
-		case EXIT_CONF_ERROR:
-			perror("The configuration file is not formatted correctly");
-			break;
 		case EXIT_SOCKET_CREATION_ERROR:
 			perror("The creation of the socket was unsuccesful");
 			break;
@@ -47,48 +60,36 @@ void die(int error) {
 		case EXIT_ACCEPT_ERROR:
 			perror("Cannot accept connection");
 			break;
-		case EXIT_FORK_ERROR:
-			perror("Cannot create a forked process");
-			break;
-		case EXIT_SELECT_ERROR:
-			perror("The select operation returned an error");
-			break;
 		case EXIT_CLOSE_ERROR:
 			perror("The close operation returned an error");
-			break;
-		case EXIT_DUP_ERROR:
-			perror("The dup operation returned an error");
-			break;
-		case EXIT_EXECLE_ERROR:
-			perror("The execle operation returned an error");
-			break;
-		case EXIT_WAIT_ERROR:
-			perror("The wait operation returned an error");
-			break;
-		case EXIT_SUPERSERVER_CONFIG_FILE_ERROR:
-			fprintf(stderr, "The superserver failed to load the configuration file.");
 			break;
 		case EXIT_INVALID_PORT:
 			fprintf(stderr, "Usage: server PORT");
 			break;
-		case EXIT_INVALID_PORT:
+		case EXIT_RECV_ERROR:
 			perror("Cannot read from socket");
+			break;
+		case EXIT_MALLOC_ERROR:
+			perror("Cannot allocate memory");
+			break;
+		case EXIT_SEND_ERROR:
+			perror("Cannot send to socket");
 			break;
 	}
 	exit(error);
 }
 
-int is_valid_port(char* s) {
+bool is_valid_port(char* s) {
 	if (strlen(s) > 5)
-		return 0;
+		return false;
 	for(char *c = s; *c != 0; c++) {
 		if (!isdigit(*c))
-			return 0;
+			return false;
 	}
 	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
 }
 
-void try_create_tcp_socket(){
+int try_create_tcp_socket(){
 	int socketFD = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if(socketFD < 0)
 		die(EXIT_SOCKET_CREATION_ERROR);
@@ -112,7 +113,7 @@ int try_accept(int socketFD){
 	return acceptResult;
 }
 
-void get_server_address(int port) {
+struct sockaddr_in get_server_address(int port) {
 	struct sockaddr_in serverAddr;
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(port); // Convert to network byte order
@@ -126,16 +127,49 @@ void try_close(int socketFD) {
 	}
 }
 
-void try_recv(int socketFD, char* buffer) {
+size_t try_recv(int socketFD, char* buffer) {
 	int readCount = recv(socketFD, buffer, MAX_BUF_SIZE, 0);
 	if (readCount < 0) {
 		die(EXIT_RECV_ERROR);
 	}
+	return readCount;
 }
 
-int ends_with_newline(char *s) {
-	int size = strlen(s);
-	return size != 0 || s[size-1] != '\n';
+void try_send(int socketFD, char* buffer, size_t len) {
+	int result = send(socketFD, buffer, len, 0);
+	if (result < 0)
+		die(EXIT_SEND_ERROR);
+}
+
+void* try_malloc(size_t size) {
+	void* pointer = malloc(size);
+	if (pointer == NULL)
+		die(EXIT_MALLOC_ERROR);
+	return pointer;
+}
+
+bool ends_with_newline(char *s, size_t len) {
+	return len != 0 || s[len-1] != '\n';
+}
+
+// Got from https://stackoverflow.com/a/1157217
+int msleep(long msec) {
+	struct timespec ts;
+	int res;
+
+	if (msec < 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	ts.tv_sec = msec / 1000;
+	ts.tv_nsec = (msec % 1000) * 1000000;
+
+	do {
+		res = nanosleep(&ts, &ts);
+	} while (res && errno == EINTR);
+
+	return res;
 }
 
 // Returns the first charater after the read int
@@ -154,12 +188,15 @@ char *read_int(char *s, char delim, int *val) {
 	return end;
 }
 
-int handle_hello_message(char *msg, MeasurementConfig *conf) {
-	if (!ends_with_newline(msg))
-		return 0;
+bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
+	char *msg = commonBuffer;
+	size_t msgLen = try_recv(dataSocket, msg);
+
+	if (!ends_with_newline(msg, msgLen))
+		return false;
 	// Check if it's hello message
-	if (s[0] != 'h' || s[1] != ' ')
-		return 0;
+	if (msg[0] != 'h' || msg[1] != ' ')
+		return false;
 
 	char *start, *end;
 
@@ -167,36 +204,101 @@ int handle_hello_message(char *msg, MeasurementConfig *conf) {
 	start = msg+2;
 	end = strchr(start, ' ');
 	if (end == NULL)
-		return 0;
+		return false;
 	*end = '\0';
 	if (strcmp(start, MEAS_RTT) == 0)
 		conf->measType = MEAS_RTT_TYPE;
 	else if(strcmp(start, MEAS_THPUT) != 0)
 		conf->measType = MEAS_THPUT_TYPE;
 	else
-		return 0;
+		return false;
 
 	// Read number of probes
 	start = end + 1;
 	end = read_int(start, ' ', &conf->nProbes);
 	if (end == NULL)
-		return 0;
+		return false;
 	// Read msg size
 	start = end + 1;
 	end = read_int(start, ' ', &conf->msgSize);
 	if (end == NULL)
-		return 0;
+		return false;
 	// Read server delay
 	start = end + 1;
 	end = read_int(start, '\n', &conf->serverDelay);
 	if (end == NULL)
-		return 0;
+		return false;
+
+	return true;
+}
+
+bool parse_measurement_msg(char *msg, int *seqNumber, char **payload) {
+	if (!ends_with_newline(msg, strlen(msg)))
+		return false;
+	// Check if it's measurement message
+	if (msg[0] != 'm' || msg[1] != ' ')
+		return false;
+
+	char *start, *end;
+	start = msg+2;
+	end = read_int(start, ' ', seqNumber);
+	if (end == NULL)
+		return false;
+
+	*payload = end + 1;
+	start[strlen(start)-1] = 0; // Remove last newline
+
+	return true;
+}
+
+bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
+	size_t payloadSize = config.msgSize + MAX_INT_LENGTH + 10;
+	char *payloadBuffer = (char*)try_malloc(payloadSize);
+	char *originalMsg = (char*)try_malloc(payloadSize);
+
+	for (int i = 0; i < config.nProbes; i++) {
+		int msgLen = try_recv(dataSocket, payloadBuffer);
+		payloadBuffer[msgLen] = '\0';
+		strcpy(originalMsg, payloadBuffer);
+		int seqNumber;
+		char *payload;
+		if (!parse_measurement_msg(payloadBuffer, &seqNumber, &payload) || seqNumber != i || strlen(payload) != config.msgSize)
+			return false;
+		msleep(config.serverDelay);
+		try_send(dataSocket, originalMsg, strlen(originalMsg));
+	}
+	free(payloadBuffer);
+	free(originalMsg);
+	return true;
+}
+
+bool handle_bye_phase(int dataSocket) {
+	size_t len = try_recv(dataSocket, commonBuffer);
+	return len == 2 && commonBuffer[0] == 'b' && commonBuffer[1] == '\n';
 }
 
 void handle_communication(int dataSocket) {
-	char buffer[MAX_BUF_SIZE];
-	try_recv(dataSocket, buffer);
-	handle_hello_message(buffer);
+	MeasurementConfig config;
+
+	if (handle_hello_phase(dataSocket, &config)) {
+		try_send(dataSocket, HELLO_OK_RESP, strlen(HELLO_OK_RESP));
+	} else {
+		try_send(dataSocket, HELLO_ERROR_RESP, strlen(HELLO_ERROR_RESP));
+		return;
+	}
+
+	if (!handle_measurement_phase(dataSocket, config)) {
+		try_send(dataSocket, MEASUREMENT_ERROR_RESP, strlen(MEASUREMENT_ERROR_RESP));
+		return;
+	}
+
+	if (handle_bye_phase(dataSocket)) {
+		try_send(dataSocket, BYE_OK_RESP, strlen(BYE_OK_RESP));
+		return;
+	} else {
+		try_send(dataSocket, BYE_ERROR_RESP, strlen(BYE_ERROR_RESP));
+		return;
+	}
 
 }
 
@@ -210,7 +312,7 @@ int main(int argc, char** argv) {
 	try_bind(helloSocket, get_server_address(port));
 	try_listen(helloSocket);
 
-	while(1) {
+	while(true) {
 		int dataSocket = try_accept(helloSocket);
 		handle_communication(dataSocket);
 		try_close(dataSocket);
