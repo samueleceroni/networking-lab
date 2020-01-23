@@ -36,6 +36,7 @@
 #define EXIT_MALLOC_ERROR 25
 #define EXIT_SEND_ERROR 26
 
+// General pourpose buffer
 char commonBuffer[MAX_BUF_SIZE];
 
 typedef struct {
@@ -79,15 +80,7 @@ void die(int error) {
 	exit(error);
 }
 
-bool is_valid_port(char* s) {
-	if (strlen(s) > 5)
-		return false;
-	for(char *c = s; *c != 0; c++) {
-		if (!isdigit(*c))
-			return false;
-	}
-	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
-}
+/* TRY- functions: wrappers to system calls with error checking */
 
 int try_create_tcp_socket(){
 	int socketFD = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -111,14 +104,6 @@ int try_accept(int socketFD){
 	if(acceptResult < 0)
 		die(EXIT_ACCEPT_ERROR);
 	return acceptResult;
-}
-
-struct sockaddr_in get_server_address(int port) {
-	struct sockaddr_in serverAddr;
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(port); // Convert to network byte order
-	serverAddr.sin_addr.s_addr = INADDR_ANY; // Bind to any address
-	return serverAddr;
 }
 
 void try_close(int socketFD) {
@@ -148,10 +133,32 @@ void* try_malloc(size_t size) {
 	return pointer;
 }
 
+/* Utility functions */
+
+struct sockaddr_in get_server_address(int port) {
+	struct sockaddr_in serverAddr;
+	serverAddr.sin_family = AF_INET;
+	serverAddr.sin_port = htons(port); // Convert to network byte order
+	serverAddr.sin_addr.s_addr = INADDR_ANY; // Bind to any address
+	return serverAddr;
+}
+
+// Checks if the given string is a valid port number
+bool is_valid_port(char* s) {
+	if (strlen(s) > 5)
+		return false;
+	for(char *c = s; *c != 0; c++) {
+		if (!isdigit(*c))
+			return false;
+	}
+	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
+}
+
 bool ends_with_newline(char *s, size_t len) {
 	return len != 0 || s[len-1] != '\n';
 }
 
+// Sleeps for the given number of milliseconds
 // Got from https://stackoverflow.com/a/1157217
 int msleep(long msec) {
 	struct timespec ts;
@@ -172,22 +179,27 @@ int msleep(long msec) {
 	return res;
 }
 
-// Returns the first charater after the read int
+// Reads into *val an integer field at the beginning of the given string.
+// The fields ends with the given character `delim`.
+// Returns the first charater after the read int number, or NULL if the
+// first field is not an integer or if the delimiter is not found.
 char *read_int(char *s, char delim, int *val) {
 	char *end = strchr(s, delim);
 	if (end == NULL)
 		return NULL;
-	*end = '\0';
 	if (end - s > MAX_INT_LENGTH)
 		return NULL;
 	for(char *c = s; c < end; c++) {
 		if(!isdigit(*c))
 			return NULL;
 	}
+	*end = '\0';
 	*val = atoi(s);
+	*end = delim;
 	return end;
 }
 
+// Returns false if there has been an error
 bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
 	char *msg = commonBuffer;
 	size_t msgLen = try_recv(dataSocket, msg);
@@ -232,6 +244,7 @@ bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
 	return true;
 }
 
+// Returns false if there has been an error
 bool parse_measurement_msg(char *msg, int *seqNumber, char **payload) {
 	if (!ends_with_newline(msg, strlen(msg)))
 		return false;
@@ -251,6 +264,7 @@ bool parse_measurement_msg(char *msg, int *seqNumber, char **payload) {
 	return true;
 }
 
+// Returns false if there has been an error
 bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 	size_t payloadSize = config.msgSize + MAX_INT_LENGTH + 10;
 	char *payloadBuffer = (char*)try_malloc(payloadSize);
@@ -272,11 +286,13 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 	return true;
 }
 
+// Returns false if there has been an error
 bool handle_bye_phase(int dataSocket) {
 	size_t len = try_recv(dataSocket, commonBuffer);
 	return len == 2 && commonBuffer[0] == 'b' && commonBuffer[1] == '\n';
 }
 
+// Handles the communication with a client
 void handle_communication(int dataSocket) {
 	MeasurementConfig config;
 
@@ -303,15 +319,18 @@ void handle_communication(int dataSocket) {
 }
 
 int main(int argc, char** argv) {
+	// Read and check port parameter
 	if (argc != 2 || !is_valid_port(argv[1])) {
 		die(EXIT_INVALID_PORT);
 	}
 	int port = atoi(argv[1]);
 
+	// Create the TCP socket to accept connections
 	int helloSocket = try_create_tcp_socket();
 	try_bind(helloSocket, get_server_address(port));
 	try_listen(helloSocket);
 
+	// Loop forever
 	while(true) {
 		int dataSocket = try_accept(helloSocket);
 		handle_communication(dataSocket);
