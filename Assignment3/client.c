@@ -20,11 +20,11 @@
 #define MAX_INT_VALUE 1e8
 #define MAX_INT_LENGTH 8
 
-#define HELLO_OK_RESP "200 OK - Ready"
-#define HELLO_ERROR_RESP "404 ERROR - Invalid Hello message"
-#define MEASUREMENT_ERROR_RESP "404 ERROR - Invalid Measurement message"
-#define BYE_OK_RESP "200 OK - Closing"
-#define BYE_ERROR_RESP "404 ERROR - Invalid Bye message"
+#define HELLO_OK_RESP "200 OK - Ready\n"
+#define HELLO_ERROR_RESP "404 ERROR - Invalid Hello message\n"
+#define MEASUREMENT_ERROR_RESP "404 ERROR - Invalid Measurement message\n"
+#define BYE_OK_RESP "200 OK - Closing\n"
+#define BYE_ERROR_RESP "404 ERROR - Invalid Bye message\n"
 
 #define EXIT_SOCKET_CREATION_ERROR 12
 #define EXIT_INVALID_PORT 23
