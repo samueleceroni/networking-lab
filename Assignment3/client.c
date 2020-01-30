@@ -205,12 +205,14 @@ void create_bye_message(char *output) {
 void handle_hello_phase(int socketFD, MeasurementConfig config) {
 	create_hello_message(config, commonBuffer);
 	try_send(socketFD, commonBuffer);
+	printf("Sent Hello message\n");
 	int readCount = receive_all_message(socketFD, commonBuffer);
 	commonBuffer[readCount] = '\0';
 	if (strcmp(commonBuffer, HELLO_OK_RESP) != 0) {
 		lastServerResponse = commonBuffer;
 		die(EXIT_RESPONSE_ERROR);
 	}
+	printf("Received OK Hello response\n");
 }
 
 // Returns the measurement result; -1 if an error occurred
@@ -226,6 +228,7 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 		create_measurement_message(i, payload, outMessage);
 		start_timer_ms();
 		try_send(socketFD, outMessage);
+		printf("Sent probe with sequence number %d\n", i);
 		int readCount = receive_all_message(socketFD, inMessage);
 		int rtt = stop_timer_ms();
 		totalRtt += rtt;
@@ -234,6 +237,7 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 			lastServerResponse = inMessage;
 			die(EXIT_RESPONSE_ERROR);
 		}
+		printf("Received echoed probe %d, RTT was %d\n", i, rtt);
 	}
 	int messageSize = strlen(inMessage);
 	free(payload);
