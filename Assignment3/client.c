@@ -178,6 +178,15 @@ int stop_timer_ms() {
 	return (tm2.tv_sec - tm.tv_sec) * 1000 + (tm2.tv_usec - tm.tv_usec) / 1000;
 }
 
+size_t receive_all_message(int socketFD, char *output) {
+	size_t len = 0;
+	do {
+		len += try_recv(socketFD, output+len);
+		printf("Received %s\n", output);
+	} while(output[len-1] != '\n');
+	return len;
+}
+
 // Creates the hello message checking parameters validity
 void create_hello_message(MeasurementConfig config, char *output) {
 	const char *measurementType = config.measType == MEAS_RTT_TYPE ? MEAS_RTT : MEAS_THPUT;
@@ -195,7 +204,7 @@ void create_bye_message(char *output) {
 void handle_hello_phase(int socketFD, MeasurementConfig config) {
 	create_hello_message(config, commonBuffer);
 	try_send(socketFD, commonBuffer);
-	int readCount = try_recv(socketFD, commonBuffer);
+	int readCount = receive_all_message(socketFD, commonBuffer);
 	commonBuffer[readCount] = '\0';
 	if (strcmp(commonBuffer, HELLO_OK_RESP) != 0) {
 		lastServerResponse = commonBuffer;
@@ -215,7 +224,7 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 		create_measurement_message(i, payload, outMessage);
 		start_timer_ms();
 		try_send(socketFD, outMessage);
-		int readCount = try_recv(socketFD, inMessage);
+		int readCount = receive_all_message(socketFD, inMessage);
 		int rtt = stop_timer_ms();
 		totalRtt += rtt;
 		inMessage[readCount] = '\0';
@@ -239,7 +248,7 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 void handle_bye_phase(int socketFD) {
 	create_bye_message(commonBuffer);
 	try_send(socketFD, commonBuffer);
-	int readCount = try_recv(socketFD, commonBuffer);
+	int readCount = receive_all_message(socketFD, commonBuffer);
 	commonBuffer[readCount] = '\0';
 	if (strcmp(commonBuffer, BYE_OK_RESP) != 0) {
 		lastServerResponse = commonBuffer;

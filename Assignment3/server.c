@@ -199,6 +199,15 @@ char *read_int(char *s, char delim, int *val) {
 	return end;
 }
 
+size_t receive_all_message(int socketFD, char *output) {
+	size_t len = 0;
+	do {
+		len += try_recv(socketFD, output+len);
+		printf("Received %s\n", output);
+	} while(output[len-1] != '\n');
+	return len;
+}
+
 char* allocate_measurement_message(int msgSize) {
 	size_t totalSize = msgSize + MAX_INT_LENGTH + 10;
 	return (char*)try_malloc(totalSize);
@@ -207,7 +216,7 @@ char* allocate_measurement_message(int msgSize) {
 // Returns false if there has been an error
 bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
 	char *msg = commonBuffer;
-	size_t msgLen = try_recv(dataSocket, msg);
+	size_t msgLen = receive_all_message(dataSocket, msg);
 
 	if (!ends_with_newline(msg, msgLen))
 		return false;
@@ -275,7 +284,7 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 	char *originalMsg = allocate_measurement_message(config.msgSize);
 
 	for (int i = 0; i < config.nProbes; i++) {
-		int msgLen = try_recv(dataSocket, payloadBuffer);
+		int msgLen = receive_all_message(dataSocket, payloadBuffer);
 		payloadBuffer[msgLen] = '\0';
 		strcpy(originalMsg, payloadBuffer);
 		int seqNumber;
@@ -292,7 +301,7 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 
 // Returns false if there has been an error
 bool handle_bye_phase(int dataSocket) {
-	size_t len = try_recv(dataSocket, commonBuffer);
+	size_t len = receive_all_message(dataSocket, commonBuffer);
 	return len == 2 && commonBuffer[0] == 'b' && commonBuffer[1] == '\n';
 }
 
