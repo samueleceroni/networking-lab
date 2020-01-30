@@ -235,7 +235,7 @@ bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
 	*end = '\0';
 	if (strcmp(start, MEAS_RTT) == 0)
 		conf->measType = MEAS_RTT_TYPE;
-	else if(strcmp(start, MEAS_THPUT) != 0)
+	else if(strcmp(start, MEAS_THPUT) == 0)
 		conf->measType = MEAS_THPUT_TYPE;
 	else
 		return false;
