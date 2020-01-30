@@ -183,7 +183,6 @@ size_t receive_all_message(int socketFD, char *output) {
 	do {
 		last_read = try_recv(socketFD, output+len);
 		len += last_read;
-		printf("Received %s\n", output);
 	} while(last_read != 0 && output[len-1] != '\n');
 	return len;
 }
