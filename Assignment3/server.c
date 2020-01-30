@@ -199,6 +199,11 @@ char *read_int(char *s, char delim, int *val) {
 	return end;
 }
 
+char* allocate_measurement_message(int msgSize) {
+	size_t totalSize = msgSize + MAX_INT_LENGTH + 10;
+	return (char*)try_malloc(totalSize);
+}
+
 // Returns false if there has been an error
 bool handle_hello_phase(int dataSocket, MeasurementConfig *conf) {
 	char *msg = commonBuffer;
@@ -266,9 +271,8 @@ bool parse_measurement_msg(char *msg, int *seqNumber, char **payload) {
 
 // Returns false if there has been an error
 bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
-	size_t payloadSize = config.msgSize + MAX_INT_LENGTH + 10;
-	char *payloadBuffer = (char*)try_malloc(payloadSize);
-	char *originalMsg = (char*)try_malloc(payloadSize);
+	char *payloadBuffer = allocate_measurement_message(config.msgSize);
+	char *originalMsg = allocate_measurement_message(config.msgSize);
 
 	for (int i = 0; i < config.nProbes; i++) {
 		int msgLen = try_recv(dataSocket, payloadBuffer);
