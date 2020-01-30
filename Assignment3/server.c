@@ -200,11 +200,12 @@ char *read_int(char *s, char delim, int *val) {
 }
 
 size_t receive_all_message(int socketFD, char *output) {
-	size_t len = 0;
+	size_t len = 0, last_read;
 	do {
-		len += try_recv(socketFD, output+len);
+		last_read += try_recv(socketFD, output+len);
+		len += last_read;
 		printf("Received %s\n", output);
-	} while(output[len-1] != '\n');
+	} while(last_read != 0 && output[len-1] != '\n');
 	return len;
 }
 
