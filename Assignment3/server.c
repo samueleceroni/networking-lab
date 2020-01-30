@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include<unistd.h>
 #include <stdbool.h>
@@ -97,8 +98,9 @@ void try_listen(int socketFD){
 		die(EXIT_LISTEN_ERROR);
 }
 
-int try_accept(int socketFD){
-	int acceptResult = accept(socketFD, NULL, NULL);
+int try_accept(int socketFD, struct sockaddr_in* client_addr){
+	socklen_t size = sizeof(*client_addr);
+	int acceptResult = accept(socketFD, (struct sockaddr*)client_addr, &size);
 	if(acceptResult < 0)
 		die(EXIT_ACCEPT_ERROR);
 	return acceptResult;
@@ -203,7 +205,6 @@ size_t receive_all_message(int socketFD, char *output) {
 	do {
 		last_read = try_recv(socketFD, output+len);
 		len += last_read;
-		printf("Received %s\n", output);
 	} while(last_read != 0 && output[len-1] != '\n');
 	return len;
 }
@@ -291,11 +292,14 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 		int seqNumber;
 		char *payload;
 		if (!parse_measurement_msg(payloadBuffer, &seqNumber, &payload) || seqNumber != i || strlen(payload) != config.msgSize) {
+			printf("Received wrong Measurement message\n");
 			isOk = false;
 			break;
 		}
+		printf("Received correct Measurement message with sequence number %d\n", seqNumber);
 		msleep(config.serverDelay);
 		isOk = try_send(dataSocket, originalMsg, strlen(originalMsg));
+		printf("Echoed back Measurement message\n");
 	}
 	free(payloadBuffer);
 	free(originalMsg);
@@ -313,23 +317,34 @@ void handle_communication(int dataSocket) {
 	MeasurementConfig config;
 
 	if (handle_hello_phase(dataSocket, &config)) {
+		const char *measType = config.measType == MEAS_RTT_TYPE ? "RTT" : "Throughput";
+		printf("Received correct Hello message: measuring %s with %d probes of size %d, server delay of %dms\n",
+			measType, config.nProbes, config.msgSize, config.serverDelay);
 		if (!try_send(dataSocket, HELLO_OK_RESP, strlen(HELLO_OK_RESP)))
 			return;
+		printf("Sent OK response: %s", HELLO_OK_RESP);
 	} else {
+		printf("Received wrong Hello message\n");
 		try_send(dataSocket, HELLO_ERROR_RESP, strlen(HELLO_ERROR_RESP));
+		printf("Sent error response: %s", HELLO_ERROR_RESP);
 		return;
 	}
 
 	if (!handle_measurement_phase(dataSocket, config)) {
 		try_send(dataSocket, MEASUREMENT_ERROR_RESP, strlen(MEASUREMENT_ERROR_RESP));
+		printf("Sent error response: %s", MEASUREMENT_ERROR_RESP);
 		return;
 	}
 
 	if (handle_bye_phase(dataSocket)) {
+		printf("Received correct Bye message\n");
 		try_send(dataSocket, BYE_OK_RESP, strlen(BYE_OK_RESP));
+		printf("Sent OK response: %s", BYE_OK_RESP);
 		return;
 	} else {
+		printf("Received wrong Bye message\n");
 		try_send(dataSocket, BYE_ERROR_RESP, strlen(BYE_ERROR_RESP));
+		printf("Sent error response: %s", BYE_ERROR_RESP);
 		return;
 	}
 }
@@ -348,8 +363,12 @@ int main(int argc, char** argv) {
 
 	// Loop forever
 	while(true) {
-		int dataSocket = try_accept(helloSocket);
+		struct sockaddr_in client_addr;
+		int dataSocket = try_accept(helloSocket, &client_addr);
+		inet_ntop(AF_INET, &client_addr.sin_addr, commonBuffer, INET_ADDRSTRLEN);
+		printf("Client connected: %s:%d\n", commonBuffer, client_addr.sin_port);
 		handle_communication(dataSocket);
 		try_close(dataSocket);
+		printf("Connection closed\n");
 	}
 }
