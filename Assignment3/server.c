@@ -34,7 +34,8 @@
 #define EXIT_INVALID_PORT 23
 #define EXIT_RECV_ERROR 24
 #define EXIT_MALLOC_ERROR 25
-#define EXIT_SEND_ERROR 26
+
+#define EXIT_SEND_ERROR_MSG "Cannot send to socket"
 
 // General pourpose buffer
 char commonBuffer[MAX_BUF_SIZE];
@@ -72,9 +73,6 @@ void die(int error) {
 			break;
 		case EXIT_MALLOC_ERROR:
 			perror("Cannot allocate memory");
-			break;
-		case EXIT_SEND_ERROR:
-			perror("Cannot send to socket");
 			break;
 	}
 	exit(error);
@@ -120,10 +118,11 @@ size_t try_recv(int socketFD, char* buffer) {
 	return readCount;
 }
 
-void try_send(int socketFD, char* buffer, size_t len) {
-	int result = send(socketFD, buffer, len, 0);
+bool try_send(int socketFD, char* buffer, size_t len) {
+	int result = send(socketFD, buffer, len, MSG_NOSIGNAL);
 	if (result < 0)
-		die(EXIT_SEND_ERROR);
+		perror(EXIT_SEND_ERROR_MSG);
+	return result >= 0;
 }
 
 void* try_malloc(size_t size) {
@@ -202,7 +201,7 @@ char *read_int(char *s, char delim, int *val) {
 size_t receive_all_message(int socketFD, char *output) {
 	size_t len = 0, last_read;
 	do {
-		last_read += try_recv(socketFD, output+len);
+		last_read = try_recv(socketFD, output+len);
 		len += last_read;
 		printf("Received %s\n", output);
 	} while(last_read != 0 && output[len-1] != '\n');
@@ -284,20 +283,23 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 	char *payloadBuffer = allocate_measurement_message(config.msgSize);
 	char *originalMsg = allocate_measurement_message(config.msgSize);
 
-	for (int i = 0; i < config.nProbes; i++) {
+	bool isOk = true;
+	for (int i = 0; isOk && i < config.nProbes; i++) {
 		int msgLen = receive_all_message(dataSocket, payloadBuffer);
 		payloadBuffer[msgLen] = '\0';
 		strcpy(originalMsg, payloadBuffer);
 		int seqNumber;
 		char *payload;
-		if (!parse_measurement_msg(payloadBuffer, &seqNumber, &payload) || seqNumber != i || strlen(payload) != config.msgSize)
-			return false;
+		if (!parse_measurement_msg(payloadBuffer, &seqNumber, &payload) || seqNumber != i || strlen(payload) != config.msgSize) {
+			isOk = false;
+			break;
+		}
 		msleep(config.serverDelay);
-		try_send(dataSocket, originalMsg, strlen(originalMsg));
+		isOk = try_send(dataSocket, originalMsg, strlen(originalMsg));
 	}
 	free(payloadBuffer);
 	free(originalMsg);
-	return true;
+	return isOk;
 }
 
 // Returns false if there has been an error
@@ -311,7 +313,8 @@ void handle_communication(int dataSocket) {
 	MeasurementConfig config;
 
 	if (handle_hello_phase(dataSocket, &config)) {
-		try_send(dataSocket, HELLO_OK_RESP, strlen(HELLO_OK_RESP));
+		if (!try_send(dataSocket, HELLO_OK_RESP, strlen(HELLO_OK_RESP)))
+			return;
 	} else {
 		try_send(dataSocket, HELLO_ERROR_RESP, strlen(HELLO_ERROR_RESP));
 		return;
@@ -329,7 +332,6 @@ void handle_communication(int dataSocket) {
 		try_send(dataSocket, BYE_ERROR_RESP, strlen(BYE_ERROR_RESP));
 		return;
 	}
-
 }
 
 int main(int argc, char** argv) {

@@ -102,13 +102,13 @@ void try_connect(int socketFD, const char* address, int port) {
 
 void try_send(int socketFD, char *msg) {
 	int len = strlen(msg);
-	int res = send(socketFD, msg, len, 0);
+	int res = send(socketFD, msg, len, MSG_NOSIGNAL);
 	if (res < len)
 		die(EXIT_SEND_ERROR);
 }
 
 size_t try_recv(int socketFD, char* buffer) {
-	int readCount = recv(socketFD, buffer, MAX_BUF_SIZE, 0);
+	size_t readCount = recv(socketFD, buffer, MAX_BUF_SIZE, 0);
 	if (readCount < 0) {
 		die(EXIT_RECV_ERROR);
 	}
@@ -181,7 +181,8 @@ int stop_timer_ms() {
 size_t receive_all_message(int socketFD, char *output) {
 	size_t len = 0, last_read;
 	do {
-		len += try_recv(socketFD, output+len);
+		last_read = try_recv(socketFD, output+len);
+		len += last_read;
 		printf("Received %s\n", output);
 	} while(last_read != 0 && output[len-1] != '\n');
 	return len;
@@ -212,6 +213,7 @@ void handle_hello_phase(int socketFD, MeasurementConfig config) {
 	}
 }
 
+// Returns the measurement result; -1 if an error occurred
 int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 	char *payload = allocate_measurement_message(config.msgSize);
 	char *outMessage = allocate_measurement_message(config.msgSize);
@@ -234,10 +236,10 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 		}
 	}
 	int messageSize = strlen(inMessage);
-	totalRtt /= config.nProbes;
 	free(payload);
 	free(outMessage);
 	free(inMessage);
+	totalRtt /= config.nProbes;
 	if (config.measType == MEAS_RTT_TYPE) {
 		return totalRtt; // ms
 	} else {
