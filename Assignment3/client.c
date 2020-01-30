@@ -179,7 +179,7 @@ int stop_timer_ms() {
 }
 
 size_t receive_all_message(int socketFD, char *output) {
-	size_t len = 0;
+	size_t len = 0, last_read;
 	do {
 		len += try_recv(socketFD, output+len);
 		printf("Received %s\n", output);
