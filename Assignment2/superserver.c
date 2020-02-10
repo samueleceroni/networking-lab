@@ -309,10 +309,9 @@ void spawn_service(int inputSocketFD, ServiceData *config, char * const envp[]) 
 	child_try_dup(inputSocketFD);
 
 	if (execle(config->path, config->name, (char*)NULL, envp) < 0) {
-		child_try_close(0);
-		child_try_close(1);
-		child_try_close(2);
-		child_try_close(inputSocketFD);
+		if (strcmp(config->protocol, PROTOCOL_UDP) == 0) {
+			recv(inputSocketFD, NULL, 0, 0); // This should remove any pending data
+		}
 		exit(CHILD_EXIT_EXECLE_ERROR);
 	}
 }
