@@ -1,2 +1,2 @@
-./tcpServer tcp 8800 nowait
+./tcpServer tcp ciaoe nowait
 ./udpServer udp 8801 wait

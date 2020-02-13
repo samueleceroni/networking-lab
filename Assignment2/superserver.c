@@ -65,7 +65,7 @@ void print_error(int error) {
 			perror("An error occurred reading configuration file");
 			break;
 		case EXIT_CONF_ERROR:
-			perror("The configuration file is not formatted correctly");
+			fprintf(stderr, "The configuration file is not formatted correctly");
 			break;
 		case EXIT_SOCKET_CREATION_ERROR:
 			perror("The creation of the socket was unsuccesful");
@@ -196,6 +196,17 @@ bool is_empty(char *s) {
 	return true;
 }
 
+// Checks if the given null-terminated string is a valid port number
+bool is_valid_port(char* s) {
+	if (strlen(s) > 5)
+		return false;
+	for (char *c = s; *c != 0; c++) {
+		if (!isdigit(*c))
+			return false;
+	}
+	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
+}
+
 // Counts non-empty lines in a stream (a line is empty if there are no chars or only whites)
 size_t count_lines(FILE *stream) {
 	size_t lines = 0;
@@ -251,7 +262,7 @@ ServiceDataVector read_configuration(FILE *stream) {
 		if (count != 4 ||
 			(strcmp(PROTOCOL_UDP, current->protocol) != 0 && strcmp(PROTOCOL_TCP, current->protocol) != 0) ||
 			(strcmp(MODE_WAIT, current->mode) != 0 && strcmp(MODE_NOWAIT, current->mode) != 0) ||
-			(atoi(current->port) <= 0 || atoi(current->port) > PORT_MAX)) {
+			!is_valid_port(current->port)) {
 			die(EXIT_CONF_ERROR);
 		}
 		const char *lastSlash = strrchr(current->path, '/'); // Extract executable name from path
