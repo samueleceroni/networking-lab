@@ -230,10 +230,10 @@ ServiceDataVector read_configuration(FILE *stream) {
 	for (size_t index = 0; index < config.size; index++) {
 		do { // Find the next non-empty line
 			char* result = fgets(line, MAX_LINE_SIZE, stream);
-			if (result == NULL && !feof(stream)) {
+			if (result == NULL) { // Must be an error because we previously counted non-empty lines
 				die(EXIT_READ_ERROR);
 			}
-		} while(is_empty(line)); // TODO check if result is not NULL
+		} while(result != NULL && is_empty(line));
 
 		ServiceData *current = &config.services[index];
 		current->pid = 0;
@@ -303,7 +303,6 @@ int initialize_all_services(ServiceDataVector *config) {
 	return maxFd + 1;
 }
 
-// TODO remove, debug only
 void print_config(ServiceDataVector config) {
 	for (int i = 0; i < config.size; i++) {
 		ServiceData *current = &config.services[i];
@@ -423,10 +422,10 @@ void handle_signal(int sig) {
 			if (WEXITSTATUS(childStatus) != 0) {
 				fprintf(stderr, "A child with PID %d exited with code %d\n", childPid, WEXITSTATUS(childStatus));
 				print_error(WEXITSTATUS(childStatus));
-			} // TODO maybe an else here?
+			}
+			// Add the service socket back to the select set
 			for (size_t i = 0; i < config.size; i++) {
 				if (config.services[i].pid == childPid) {
-					printf("found pid: %s\n", config.services[i].name);
 					FD_SET(config.services[i].socketFD, &socketsSet);
 					config.services[i].pid = 0;
 					break;
