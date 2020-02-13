@@ -212,6 +212,13 @@ size_t count_lines(FILE *stream) {
 	return lines;
 }
 
+void print_config(ServiceDataVector config) {
+	for (int i = 0; i < config.size; i++) {
+		ServiceData *current = &config.services[i];
+		printf("  %s (%s) :%s, %s %s\n", current->path, current->name, current->port, current->mode, current->protocol);
+	}
+}
+
 ServiceDataVector read_configuration(FILE *stream) {
 	// Initialize the conf vector counting the lines in conf file
 	ServiceDataVector config;
@@ -233,7 +240,7 @@ ServiceDataVector read_configuration(FILE *stream) {
 			if (result == NULL) { // Must be an error because we previously counted non-empty lines
 				die(EXIT_READ_ERROR);
 			}
-		} while(result != NULL && is_empty(line));
+		} while(is_empty(line));
 
 		ServiceData *current = &config.services[index];
 		current->pid = 0;
@@ -259,6 +266,8 @@ ServiceDataVector read_server_configuration(){
 	if(fp == NULL)
 		die(EXIT_SUPERSERVER_CONFIG_FILE_ERROR);
 	ServiceDataVector config = read_configuration(fp);
+	printf("Configuration file read successfully:\n");
+	print_config(config);
 	fclose(fp);
 	return config;
 }
@@ -303,13 +312,6 @@ int initialize_all_services(ServiceDataVector *config) {
 	return maxFd + 1;
 }
 
-void print_config(ServiceDataVector config) {
-	for (int i = 0; i < config.size; i++) {
-		ServiceData *current = &config.services[i];
-		printf("%s (%s) :%s, %s %s\n", current->path, current->name, current->port, current->mode, current->protocol);
-	}
-}
-
 // Frees a ServiceDataVector memory
 void free_services(ServiceDataVector *config) {
 	free(config->services);
@@ -344,6 +346,8 @@ void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
 	} else {
 		receiveSocketFD = config->socketFD;
 	}
+	printf("Handling service %s on %s port %s ('%s' mode).",
+		config->path, config->protocol, config->port, config->mode);
 
 	pid_t pid = try_fork();
 	if (pid == 0) { // In the child
@@ -362,7 +366,9 @@ void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
 		FD_CLR(config->socketFD, socketsSet);
 		// and save the child PID
 		config->pid = pid;
+		printf(" Child PID is %d; ignoring other socket activity.", pid);
 	}
+	printf("\n");
 }
 
 void initialize_socket_set(ServiceDataVector config, fd_set *socketsSet){
@@ -398,8 +404,6 @@ int main(int argc, char **argv, char **env) {
 	// Configuration loading
 	config = read_server_configuration();
 
-	print_config(config); // TODO remove, debug only
-
 	int highestFd = initialize_all_services(&config);
 	initialize_socket_set(config, &socketsSet);
 
@@ -428,6 +432,8 @@ void handle_signal(int sig) {
 				if (config.services[i].pid == childPid) {
 					FD_SET(config.services[i].socketFD, &socketsSet);
 					config.services[i].pid = 0;
+					printf("Service %s finished (PID %d); socket activity no longer ignored.\n",
+						config.services[i].path, childPid);
 					break;
 				}
 			}
