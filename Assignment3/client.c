@@ -142,7 +142,7 @@ bool check_parameters(MeasurementConfig config) {
 		return false;
 	if (config.msgSize <= 0 || config.msgSize > MAX_INT_VALUE)
 		return false;
-	if (config.serverDelay <= 0 || config.serverDelay > MAX_INT_VALUE)
+	if (config.serverDelay < 0 || config.serverDelay > MAX_INT_VALUE)
 		return false;
 	return true;
 }
@@ -281,6 +281,29 @@ void measure(const char* serverAddr, const int port, MeasurementConfig config) {
 	handle_session(serverSocket, config);
 }
 
+// Reads configuration parameters
+MeasurementConfig read_config() {
+	MeasurementConfig config;
+	char measType[20];
+	fgets(commonBuffer, MAX_BUF_SIZE, stdin); // Only read one line
+	int readCount = sscanf(commonBuffer, "%s %d %d %d", measType, &config.nProbes, &config.msgSize, &config.serverDelay);
+	if (readCount < 3 || (strcmp(measType, MEAS_THPUT) != 0 && strcmp(measType, MEAS_RTT) != 0)) {
+		die(EXIT_PARAMETERS_ERROR);
+	}
+	if (readCount == 3) { // Server delay is optional, default is 0
+		config.serverDelay = 0;
+	}
+	if (!check_parameters(config)) {
+		die(EXIT_PARAMETERS_ERROR);
+	}
+	if (strcmp(measType, MEAS_THPUT) == 0) {
+		config.measType = MEAS_THPUT_TYPE;
+	} else {
+		config.measType = MEAS_RTT_TYPE;
+	}
+	return config;
+}
+
 int main(int argc, char **argv) {
 	// Read and check port parameter
 	if (argc != 3 || !is_valid_port(argv[2])) {
@@ -288,28 +311,6 @@ int main(int argc, char **argv) {
 	}
 	int port = atoi(argv[2]);
 
-	// Create the measurement configuration
-	int rttSizes[]   = {1,   100, 200,  400,  800, 1000};
-	int thputSizes[] = {1e3, 2e3, 4e3, 16e3, 32e3};
-	int rttCount = sizeof(rttSizes) / sizeof(rttSizes[0]);
-	int thputCount = sizeof(thputSizes) / sizeof(thputSizes[0]);
-	MeasurementConfig config;
-	config.nProbes = 20;
-	config.serverDelay = 0;
-
-	// Measure RTT
-	config.measType = MEAS_RTT_TYPE;
-	for(int i = 0; i < rttCount; i++) {
-		printf("\nRTT measure %d/%d\n", i+1, rttCount);
-		config.msgSize = rttSizes[i];
-		measure(argv[1], port, config);
-	}
-
-	// Measure Throughput
-	config.measType = MEAS_THPUT_TYPE;
-	for(int i = 0; i < thputCount; i++) {
-		printf("\nThroughput measure %d/%d\n", i+1, thputCount);
-		config.msgSize = thputSizes[i];
-		measure(argv[1], port, config);
-	}
+	MeasurementConfig config = read_config();
+	measure(argv[1], port, config);
 }
