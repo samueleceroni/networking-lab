@@ -257,12 +257,14 @@ double handle_measurement_phase(int socketFD, MeasurementConfig config) {
 void handle_bye_phase(int socketFD) {
 	create_bye_message(commonBuffer);
 	try_send(socketFD, commonBuffer);
+	printf("Sent Bye message\n");
 	int readCount = receive_all_message(socketFD, commonBuffer);
 	commonBuffer[readCount] = '\0';
 	if (strcmp(commonBuffer, BYE_OK_RESP) != 0) {
 		lastServerResponse = commonBuffer;
 		die(EXIT_RESPONSE_ERROR);
 	}
+	printf("Received OK Bye response\n");
 }
 
 // Handles a measuremente session with the server
