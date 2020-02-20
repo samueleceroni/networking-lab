@@ -245,11 +245,11 @@ int handle_measurement_phase(int socketFD, MeasurementConfig config) {
 	free(payload);
 	free(outMessage);
 	free(inMessage);
-	totalRtt /= config.nProbes;
+	int avgRtt = totalRtt / config.nProbes;
 	if (config.measType == MEAS_RTT_TYPE) {
-		return totalRtt; // ms
+		return avgRtt; // ms
 	} else {
-		return 8*messageSize / totalRtt; // bits / ms = kbps
+		return 8*messageSize / avgRtt; // bits / ms = kbps
 	}
 }
 
