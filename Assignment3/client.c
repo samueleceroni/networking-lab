@@ -43,10 +43,10 @@ char *lastServerResponse;
 struct timeval tm;
 
 typedef struct {
-	int measType;
-	int nProbes;
-	int msgSize;
-	int serverDelay;
+	int measType;    // MEAS_THPUT_TYPE or MEAS_RTT_TYPE
+	int nProbes;     // Number of probes to calculate the desired measurement
+	int msgSize;     // The size of the measurement payload
+	int serverDelay; // Used to simulate network propagation delay
 } MeasurementConfig;
 
 // Terminates the program with a custom error code
@@ -136,6 +136,7 @@ bool is_valid_port(char* s) {
 	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
 }
 
+// Checks validity of measurement configuration parameters
 bool check_parameters(MeasurementConfig config) {
 	if (config.nProbes <= 0 || config.nProbes > MAX_INT_VALUE)
 		return false;
@@ -146,6 +147,7 @@ bool check_parameters(MeasurementConfig config) {
 	return true;
 }
 
+// Allocates the right amount of memory for a measurement message
 char* allocate_measurement_message(int msgSize) {
 	size_t totalSize = msgSize + MAX_INT_LENGTH + 10;
 	return (char*)try_malloc(totalSize);
@@ -156,6 +158,13 @@ void start_timer_ms() {
 	gettimeofday(&tm, NULL);
 }
 
+// Stops timer measurement and returns the elapsed time
+int stop_timer_ms() {
+	struct timeval tm2;
+	gettimeofday(&tm2, NULL);
+	return (tm2.tv_sec - tm.tv_sec) * 1000 + (tm2.tv_usec - tm.tv_usec) / 1000;
+}
+
 // Generates a cyclic payload like "abc...zabc..."
 void generate_payload(int size, char* payload) {
 	for(int i = 0; i < size; i++) {
@@ -164,20 +173,14 @@ void generate_payload(int size, char* payload) {
 	payload[size] = '\0';
 }
 
-void print_result(MeasurementConfig config, int value) {
+void print_measurement_result(MeasurementConfig config, int value) {
 	const char *measType = config.measType == MEAS_RTT_TYPE ? "RTT" : "Throughput";
 	const char *measUnit = config.measType == MEAS_RTT_TYPE ? "ms" : "kbps";
 	printf("%s measured with %d probes with a payload of %d bytes: %d%s\n",
 		measType, config.nProbes, config.msgSize, value, measUnit);
 }
 
-// Stops timer measurement and returns the elapsed time
-int stop_timer_ms() {
-	struct timeval tm2;
-	gettimeofday(&tm2, NULL);
-	return (tm2.tv_sec - tm.tv_sec) * 1000 + (tm2.tv_usec - tm.tv_usec) / 1000;
-}
-
+// Reads from the socket until it finds a newline
 size_t receive_all_message(int socketFD, char *output) {
 	size_t len = 0, last_read;
 	do {
@@ -261,11 +264,12 @@ void handle_bye_phase(int socketFD) {
 	}
 }
 
+// Handles a measuremente session with the server
 void handle_session(int socketFD, MeasurementConfig config) {
 	handle_hello_phase(socketFD, config);
 	int result = handle_measurement_phase(socketFD, config);
 	handle_bye_phase(socketFD);
-	print_result(config, result);
+	print_measurement_result(config, result);
 }
 
 int main(int argc, char **argv) {
@@ -275,12 +279,17 @@ int main(int argc, char **argv) {
 	}
 	int port = atoi(argv[2]);
 
+	// Connects to the server
 	int serverSocket = try_create_tcp_socket();
 	try_connect(serverSocket, argv[1], port);
+
+	// Create the measurement configuration
 	MeasurementConfig config;
 	config.measType = MEAS_RTT_TYPE;
 	config.nProbes = 100;
 	config.msgSize = 1000;
 	config.serverDelay = 100;
+
+	// Carry out the actual measurement
 	handle_session(serverSocket, config);
 }

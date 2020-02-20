@@ -155,6 +155,7 @@ bool is_valid_port(char* s) {
 	return atoi(s) > 0 && atoi(s) <= PORT_MAX;
 }
 
+// Checks if a string ends with a newline
 bool ends_with_newline(char *s, size_t len) {
 	return len != 0 || s[len-1] != '\n';
 }
@@ -200,6 +201,7 @@ char *read_int(char *s, char delim, int *val) {
 	return end;
 }
 
+// Reads from the socket until it finds a newline
 size_t receive_all_message(int socketFD, char *output) {
 	size_t len = 0, last_read;
 	do {
@@ -209,6 +211,7 @@ size_t receive_all_message(int socketFD, char *output) {
 	return len;
 }
 
+// Allocates the right amount of memory for a measurement message
 char* allocate_measurement_message(int msgSize) {
 	size_t totalSize = msgSize + MAX_INT_LENGTH + 10;
 	return (char*)try_malloc(totalSize);
@@ -291,6 +294,7 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 		strcpy(originalMsg, payloadBuffer);
 		int seqNumber;
 		char *payload;
+		// Check for any error
 		if (!parse_measurement_msg(payloadBuffer, &seqNumber, &payload) || seqNumber != i || strlen(payload) != config.msgSize) {
 			printf("Received wrong Measurement message\n");
 			isOk = false;
@@ -316,6 +320,7 @@ bool handle_bye_phase(int dataSocket) {
 void handle_communication(int dataSocket) {
 	MeasurementConfig config;
 
+	// Handle Hello Phase errors and log messages
 	if (handle_hello_phase(dataSocket, &config)) {
 		const char *measType = config.measType == MEAS_RTT_TYPE ? "RTT" : "Throughput";
 		printf("Received correct Hello message: measuring %s with %d probes of size %d, server delay of %dms\n",
@@ -330,12 +335,14 @@ void handle_communication(int dataSocket) {
 		return;
 	}
 
+	// Handle Measurement Phase errors and log messages
 	if (!handle_measurement_phase(dataSocket, config)) {
 		try_send(dataSocket, MEASUREMENT_ERROR_RESP, strlen(MEASUREMENT_ERROR_RESP));
 		printf("Sent error response: %s", MEASUREMENT_ERROR_RESP);
 		return;
 	}
 
+	// Handle Bye Phase errors and log messages
 	if (handle_bye_phase(dataSocket)) {
 		printf("Received correct Bye message\n");
 		try_send(dataSocket, BYE_OK_RESP, strlen(BYE_OK_RESP));
@@ -363,11 +370,18 @@ int main(int argc, char** argv) {
 
 	// Loop forever
 	while(true) {
+		// Accept a new connection
 		struct sockaddr_in client_addr;
 		int dataSocket = try_accept(helloSocket, &client_addr);
+
+		// Print client info
 		inet_ntop(AF_INET, &client_addr.sin_addr, commonBuffer, INET_ADDRSTRLEN);
 		printf("Client connected: %s:%d\n", commonBuffer, client_addr.sin_port);
+
+		// Handle the measurement
 		handle_communication(dataSocket);
+
+		// Close the connection (if the communication was either successful or failed)
 		try_close(dataSocket);
 		printf("Connection closed\n");
 	}
