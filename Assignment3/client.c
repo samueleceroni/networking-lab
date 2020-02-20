@@ -154,15 +154,15 @@ char* allocate_measurement_message(int msgSize) {
 }
 
 // Starts ther timer measurement
-void start_timer_ms() {
+void start_timer_us() {
 	gettimeofday(&tm, NULL);
 }
 
 // Stops timer measurement and returns the elapsed time
-int stop_timer_ms() {
+int stop_timer_us() {
 	struct timeval tm2;
 	gettimeofday(&tm2, NULL);
-	return (tm2.tv_sec - tm.tv_sec) * 1000 + (tm2.tv_usec - tm.tv_usec) / 1000;
+	return (tm2.tv_sec - tm.tv_sec) * 1e6 + (tm2.tv_usec - tm.tv_usec);
 }
 
 // Generates a cyclic payload like "abc...zabc..."
@@ -173,10 +173,10 @@ void generate_payload(int size, char* payload) {
 	payload[size] = '\0';
 }
 
-void print_measurement_result(MeasurementConfig config, int value) {
+void print_measurement_result(MeasurementConfig config, double value) {
 	const char *measType = config.measType == MEAS_RTT_TYPE ? "RTT" : "Throughput";
 	const char *measUnit = config.measType == MEAS_RTT_TYPE ? "ms" : "kbps";
-	printf("%s measured with %d probes with a payload of %d bytes: %d%s\n",
+	printf("%s measured with %d probes with a payload of %d bytes: %.3f%s\n",
 		measType, config.nProbes, config.msgSize, value, measUnit);
 }
 
@@ -218,34 +218,35 @@ void handle_hello_phase(int socketFD, MeasurementConfig config) {
 }
 
 // Returns the measurement result; -1 if an error occurred
-int handle_measurement_phase(int socketFD, MeasurementConfig config) {
+double handle_measurement_phase(int socketFD, MeasurementConfig config) {
 	char *payload = allocate_measurement_message(config.msgSize);
 	char *outMessage = allocate_measurement_message(config.msgSize);
 	char *inMessage = allocate_measurement_message(config.msgSize);
 	generate_payload(config.msgSize, payload);
 
-	int totalRtt = 0;
+	int totalRtt = 0; // In microseconds
 
 	for(int i = 0; i < config.nProbes; i++) {
 		create_measurement_message(i, payload, outMessage);
-		start_timer_ms();
+		start_timer_us();
 		try_send(socketFD, outMessage);
 		printf("Sent probe with sequence number %d\n", i);
 		int readCount = receive_all_message(socketFD, inMessage);
-		int rtt = stop_timer_ms();
+		int rtt = stop_timer_us();
 		totalRtt += rtt;
 		inMessage[readCount] = '\0';
 		if (strcmp(inMessage, outMessage) != 0) {
 			lastServerResponse = inMessage;
 			die(EXIT_RESPONSE_ERROR);
 		}
-		printf("Received echoed probe %d, RTT was %d\n", i, rtt);
+		printf("Received echoed probe %d, RTT was %.3fms\n", i, rtt/1000.0);
 	}
+	// Assuming the message size is always the same (only changes few bytes in the sequence number)
 	int messageSize = strlen(inMessage);
 	free(payload);
 	free(outMessage);
 	free(inMessage);
-	int avgRtt = totalRtt / config.nProbes;
+	double avgRtt = (double)totalRtt / config.nProbes / 1000;
 	if (config.measType == MEAS_RTT_TYPE) {
 		return avgRtt; // ms
 	} else {
@@ -267,9 +268,17 @@ void handle_bye_phase(int socketFD) {
 // Handles a measuremente session with the server
 void handle_session(int socketFD, MeasurementConfig config) {
 	handle_hello_phase(socketFD, config);
-	int result = handle_measurement_phase(socketFD, config);
+	double result = handle_measurement_phase(socketFD, config);
 	handle_bye_phase(socketFD);
 	print_measurement_result(config, result);
+}
+
+// Carry out a complete measurement
+void measure(const char* serverAddr, const int port, MeasurementConfig config) {
+	// Connects to the server
+	int serverSocket = try_create_tcp_socket();
+	try_connect(serverSocket, serverAddr, port);
+	handle_session(serverSocket, config);
 }
 
 int main(int argc, char **argv) {
@@ -279,17 +288,28 @@ int main(int argc, char **argv) {
 	}
 	int port = atoi(argv[2]);
 
-	// Connects to the server
-	int serverSocket = try_create_tcp_socket();
-	try_connect(serverSocket, argv[1], port);
-
 	// Create the measurement configuration
+	int rttSizes[]   = {1,   100, 200,  400,  800, 1000};
+	int thputSizes[] = {1e3, 2e3, 4e3, 16e3, 32e3};
+	int rttCount = sizeof(rttSizes) / sizeof(rttSizes[0]);
+	int thputCount = sizeof(thputSizes) / sizeof(thputSizes[0]);
 	MeasurementConfig config;
-	config.measType = MEAS_RTT_TYPE;
-	config.nProbes = 100;
-	config.msgSize = 1000;
-	config.serverDelay = 100;
+	config.nProbes = 20;
+	config.serverDelay = 0;
 
-	// Carry out the actual measurement
-	handle_session(serverSocket, config);
+	// Measure RTT
+	config.measType = MEAS_RTT_TYPE;
+	for(int i = 0; i < rttCount; i++) {
+		printf("\nRTT measure %d/%d\n", i+1, rttCount);
+		config.msgSize = rttSizes[i];
+		measure(argv[1], port, config);
+	}
+
+	// Measure Throughput
+	config.measType = MEAS_THPUT_TYPE;
+	for(int i = 0; i < thputCount; i++) {
+		printf("\nThroughput measure %d/%d\n", i+1, thputCount);
+		config.msgSize = thputSizes[i];
+		measure(argv[1], port, config);
+	}
 }
