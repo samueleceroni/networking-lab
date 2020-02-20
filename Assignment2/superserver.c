@@ -369,6 +369,7 @@ void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
 	}
 
 	// From now on in the father
+	printf(" Child PID is %d", pid);
 	if (isTcp) {
 		try_close(receiveSocketFD); // Close data TCP socket
 	}
@@ -377,7 +378,7 @@ void handle_service(ServiceData* config, char **env, fd_set* socketsSet){
 		FD_CLR(config->socketFD, socketsSet);
 		// and save the child PID
 		config->pid = pid;
-		printf(" Child PID is %d; ignoring other socket activity.", pid);
+		printf("; ignoring other socket activity.");
 	}
 	printf("\n");
 }
@@ -434,6 +435,7 @@ void handle_signal(int sig) {
 	switch (sig) {
 		case SIGCHLD:
 			childPid = try_wait(&childStatus);
+			printf("PID %d exited\n", childPid);
 			if (WEXITSTATUS(childStatus) != 0) {
 				fprintf(stderr, "A child with PID %d exited with code %d\n", childPid, WEXITSTATUS(childStatus));
 				print_error(WEXITSTATUS(childStatus));

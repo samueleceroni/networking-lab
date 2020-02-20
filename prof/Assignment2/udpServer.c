@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <unistd.h>
 
 #include "myfunction.h"
 
@@ -18,6 +19,7 @@ int main(int argc, char *argv[]){
   socklen_t cli_size;
   char receivedData [MAX_BUF_SIZE]; // Data to be received
   char sendData [MAX_BUF_SIZE]; // Data to be sent
+  pid_t myPid = getpid();
   
   cli_size = sizeof(client_addr);
   
@@ -34,6 +36,10 @@ int main(int argc, char *argv[]){
   	}
 
   	convertToUpperCase(receivedData, byteRecv);
+	receivedData[byteRecv] = 0;
+	sprintf(sendData, "%s %d", receivedData, myPid);
+	//receivedData[byteRecv] = ' ';
+	//sprintf(&receivedData[byteRecv+1], "%d\0", myPid);
 		byteSent = sendto(1, receivedData, byteRecv, 0, (struct sockaddr *) &client_addr, sizeof(client_addr));
   	
   	if(byteSent != byteRecv){
