@@ -226,7 +226,7 @@ double handle_measurement_phase(int socketFD, MeasurementConfig config) {
 
 	int totalRtt = 0; // In microseconds
 
-	for(int i = 0; i < config.nProbes; i++) {
+	for(int i = 1; i <= config.nProbes; i++) {
 		create_measurement_message(i, payload, outMessage);
 		start_timer_us();
 		try_send(socketFD, outMessage);

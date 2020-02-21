@@ -288,7 +288,7 @@ bool handle_measurement_phase(int dataSocket, MeasurementConfig config) {
 	char *originalMsg = allocate_measurement_message(config.msgSize);
 
 	bool isOk = true;
-	for (int i = 0; isOk && i < config.nProbes; i++) {
+	for (int i = 1; isOk && i <= config.nProbes; i++) {
 		int msgLen = receive_all_message(dataSocket, payloadBuffer);
 		payloadBuffer[msgLen] = '\0';
 		strcpy(originalMsg, payloadBuffer);
